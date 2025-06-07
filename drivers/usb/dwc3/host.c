@@ -15,6 +15,7 @@
 #include "../host/xhci-plat.h"
 #include "core.h"
 
+extern void dwc3_enable_susphy(struct dwc3 *dwc, bool enable);
 static void dwc3_xhci_plat_start(struct usb_hcd *hcd)
 {
 	struct platform_device *pdev;
