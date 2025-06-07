@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2011-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023, Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/bitfield.h>
@@ -154,7 +154,7 @@ static int get_sg_from_child(struct sg_table *sgt, struct kgsl_memdesc *child,
 	int pgoffset = (offset >> PAGE_SHIFT);
 	struct scatterlist *target_sg;
 	struct sg_page_iter iter;
-	int ret;
+	int i = 0, ret;
 
 	if (child->pages)
 		return sg_alloc_table_from_pages(sgt,
@@ -167,9 +167,12 @@ static int get_sg_from_child(struct sg_table *sgt, struct kgsl_memdesc *child,
 
 	target_sg = sgt->sgl;
 
-	for_each_sg_page(child->sgt->sgl, &iter, npages, pgoffset) {
+	for_each_sgtable_page(child->sgt, &iter, pgoffset) {
 		sg_set_page(target_sg, sg_page_iter_page(&iter), PAGE_SIZE, 0);
 		target_sg = sg_next(target_sg);
+
+		if (++i == npages)
+			break;
 	}
 
 	return 0;
@@ -1332,7 +1335,7 @@ static void _enable_gpuhtw_llc(struct kgsl_mmu *mmu, struct iommu_domain *domain
 		iommu_domain_set_attr(domain, DOMAIN_ATTR_USE_UPSTREAM_HINT, &val);
 }
 
-static int set_smmu_aperture(struct kgsl_device *device,
+int kgsl_set_smmu_aperture(struct kgsl_device *device,
 		struct kgsl_iommu_context *context)
 {
 	int ret;
@@ -2235,19 +2238,20 @@ static int kgsl_iommu_svm_range(struct kgsl_pagetable *pagetable,
 static bool kgsl_iommu_addr_in_range(struct kgsl_pagetable *pagetable,
 		uint64_t gpuaddr, uint64_t size)
 {
-	if (gpuaddr == 0)
+	u64 end = gpuaddr + size;
+
+	/* Make sure we don't wrap around */
+	if (gpuaddr == 0 || end < gpuaddr)
 		return false;
 
-	if (gpuaddr >= pagetable->va_start && (gpuaddr + size) <
-			pagetable->va_end)
+	if (gpuaddr >= pagetable->va_start && end <= pagetable->va_end)
 		return true;
 
-	if (gpuaddr >= pagetable->compat_va_start && (gpuaddr + size) <
-			pagetable->compat_va_end)
+	if (gpuaddr >= pagetable->compat_va_start &&
+		end <= pagetable->compat_va_end)
 		return true;
 
-	if (gpuaddr >= pagetable->svm_start && (gpuaddr + size) <
-			pagetable->svm_end)
+	if (gpuaddr >= pagetable->svm_start && end <= pagetable->svm_end)
 		return true;
 
 	return false;
@@ -2371,7 +2375,7 @@ static int iommu_probe_user_context(struct kgsl_device *device,
 	/* Enable TTBR0 on the default and LPAC contexts */
 	kgsl_iommu_set_ttbr0(&iommu->user_context, mmu, &pt->info.cfg);
 
-	set_smmu_aperture(device, &iommu->user_context);
+	kgsl_set_smmu_aperture(device, &iommu->user_context);
 
 	kgsl_iommu_set_ttbr0(&iommu->lpac_context, mmu, &pt->info.cfg);
 
